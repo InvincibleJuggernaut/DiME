@@ -33,6 +33,8 @@ The system consists of three main components:
 2. **Timer Block IP (timerBlock_1.0)**: Provides precise delay and pulse width measurement
 3. **DAC2 Module**: Manages dual-channel 12-bit D/A conversion with SPI-like interface
 
+<br>
+
 ## Working
 
 ### 1. System Overview
@@ -59,7 +61,6 @@ DiME is implemented as a heterogeneous system combining:
 
 ### 2. Core Components
 
-<br>
 
 #### A. DME Squared Cosine IP (my_ip/dme_sqr_cos_1.0)
 
@@ -95,7 +96,7 @@ DiME is implemented as a heterogeneous system combining:
 - Clean, spectrally-efficient pulse signals.
 - Software-configurable pulse characteristics for system flexibility.
 
-<br>
+---
 
 #### B. Timer Block IP (my_ip/timerBlock_1.0)
 
@@ -130,7 +131,7 @@ DiME is implemented as a heterogeneous system combining:
 - Precise measurement of signal propagation time.
 - Accurate distance determination from received pulse echo.
 
-<br>
+---
 
 #### C. DAC2 Module (DAC2/)
 
@@ -312,6 +313,8 @@ Analog Output
    - Software for flexible configuration and data processing.
    - Demonstrates FPGA-based avionics subsystem design.
 
+<br>
+
 ## Implementation Technology
 
 - **Language**: 98.3% VHDL, 1.4% Verilog, 0.3% Other
@@ -319,6 +322,7 @@ Analog Output
 - **Integration**: AXI4-Lite Slave Interface
 - **Embedded System**: ARM Processor + FPGA Co-design
 
+<br>
 
 ## Usage Example
 
