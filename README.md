@@ -1,1 +1,384 @@
-# DiME
+# DiME - Distance Measuring Equipment for Aircraft
+
+## Introduction
+
+**DiME (Distance Measuring Equipment)** is a specialized FPGA-based system designed to implement pulse generation, detection, and time measurement capabilities essential for aircraft navigation and distance determination. This project demonstrates a hardware-software codesign approach combining VHDL/Verilog hardware descriptions with embedded C software to create a complete DME system on a programmable logic platform.
+
+### Purpose
+
+Distance Measuring Equipment is a critical avionics system that enables aircraft to determine their distance from ground-based navigation aids. The system operates by:
+- Generating precise pulse sequences at specific intervals
+- Transmitting these pulses with defined characteristics
+- Measuring the time delay between transmitted and received signals
+- Computing the distance based on signal propagation time
+
+This FPGA implementation provides:
+- **Pulse Generation**: Accurate generation of multiple pulse channels with configurable pulse widths
+- **Time Measurement**: High-precision timing capabilities using dedicated timer blocks
+- **Signal Shaping**: Squared-cosine waveform generation for spectral efficiency
+- **Multi-Channel DAC Control**: Dual-channel digital-to-analog conversion for waveform output
+
+### Key Features
+
+- **FPGA-Based Architecture**: Fully parameterizable hardware design for flexibility
+- **Multi-Channel Pulse Generation**: Support for 3+ channels with independent control
+- **Precise Timing**: Hardware timer blocks for accurate time measurement with microsecond resolution
+- **Waveform Generation**: Pre-computed sine and squared-cosine lookup tables for efficient signal generation
+- **AXI Interface**: Standard Xilinx AXI protocol for processor integration
+- **Dual-Channel DAC**: 12-bit precision dual-channel digital-to-analog conversion
+
+### System Architecture
+
+The system consists of three main components:
+
+1. **DME Squared Cosine IP (dme_sqr_cos_1.0)**: Generates shaped pulse signals with configurable parameters
+2. **Timer Block IP (timerBlock_1.0)**: Provides precise delay and pulse width measurement
+3. **DAC2 Module**: Manages dual-channel 12-bit D/A conversion with SPI-like interface
+
+---
+
+## Working
+
+### 1. System Overview
+
+DiME is implemented as a heterogeneous system combining:
+- **Hardware Components** (VHDL/Verilog): Real-time pulse generation, timing, and signal shaping
+- **Software Components** (C): Control logic, configuration, and measurement processing
+- **Communication Protocol**: AXI Slave Interface for register-based control
+
+```
+┌─────────────────────────────────────────────────────┐
+│           Embedded Processor (ARM)                  │
+│  (SW/main.c - Configuration & Control)            │
+└──────────────────┬──────────────────────────────────┘
+                   │ AXI Bus Interface
+      ┌────────────┼────────────┬─────────────┐
+      │            │            │             │
+      ▼            ▼            ▼             ▼
+  DME SQR COS  Timer Block   DAC Controller  VIO Debug
+  (my_ip/**)  (my_ip/**)    (DAC2/*)        (Optional)
+      │            │            │
+      └────────────┴────────────┴─ Analog Outputs
+```
+
+### 2. Core Components Analysis
+
+#### A. DME Squared Cosine IP (my_ip/dme_sqr_cos_1.0)
+
+**Purpose**: Generates shaped pulse signals for DME transmission
+
+**Key Features**:
+- Generates 3 independent pulse channels
+- Each channel has configurable pulse width via AXI registers
+- Uses squared-cosine waveform shaping (pre-computed in `signed_squared_cosine_data.coe`)
+- Reduces spectral emissions and improves signal quality
+
+**How It Works**:
+
+1. **Register Configuration**:
+   - `SLV_REG0_OFFSET (0x00)`: Pulse width for Channel 1
+   - `SLV_REG1_OFFSET (0x04)`: Pulse width for Channel 2
+   - `SLV_REG2_OFFSET (0x08)`: Pulse width for Channel 3
+   - `ENABLE (0x0C)`: Start/stop control for pulse generation
+
+2. **Pulse Width Timing** (from SW/main.c):
+   ```
+   Value 0x1   → ~5.35 ms
+   Value 0x3E8 → ~2.58 ms
+   Value 0x9C4 → ~0.96 ms (~1 ms)
+   ```
+   - Calculated as: Time (ms) = Value × Clock Period × Scale Factor
+   - Using internal clock frequency and prescaling
+
+3. **Waveform Generation**:
+   - Reads squared-cosine coefficients from lookup table (`signed_squared_cosine_data.coe`)
+   - Applies envelope shaping to pulse output
+   - Reduces interference and improves frequency spectrum
+
+**What Is Achieved**:
+- Clean, spectrally-efficient pulse signals
+- Multiple independent pulse streams for multi-channel DME operation
+- Software-configurable pulse characteristics for system flexibility
+
+---
+
+#### B. Timer Block IP (my_ip/timerBlock_1.0)
+
+**Purpose**: Measures delay and pulse width with high precision
+
+**Key Features**:
+- Captures time delays between events
+- Measures pulse widths with microsecond precision
+- AXI interface for software readback
+- Used for calculating distance from measured signal delay
+
+**How It Works**:
+
+1. **Register Interface**:
+   - `DELAY (0x00)`: Measured delay/time interval
+   - `PULSE_WIDTH (0x04)`: Measured pulse duration
+
+2. **Timing Measurement Process**:
+   - Detects pulse edges (rising and falling)
+   - Counts clock cycles between events
+   - Stores measurement in readable registers
+   - Software reads values and converts to physical time
+
+3. **Distance Calculation** (in embedded software):
+   ```c
+   delay = Xil_In32(TIMER_BASEADDR + DELAY);
+   pulse_width = Xil_In32(TIMER_BASEADDR + PULSE_WIDTH);
+   // Distance = (delay / clock_frequency) × speed_of_light / 2
+   ```
+
+**What Is Achieved**:
+- Precise measurement of signal propagation time
+- Accurate distance determination from received pulse echo
+- Real-time timing data for navigation processing
+
+---
+
+#### C. DAC2 Module (DAC2/)
+
+**Purpose**: Converts digital pulse signals to analog waveforms for RF transmission
+
+**Modules**:
+
+1. **clk_div.v** - Clock Divider for DAC SPI Interface
+   ```verilog
+   module clkDiv25en(
+     input clk,          // 50 MHz input
+     input rst,
+     input en,
+     output reg SCLK     // 25 MHz serial clock output
+   );
+   ```
+   - Divides 50 MHz clock to 25 MHz for SPI communication
+   - Enables synchronous serial data transmission to DAC chip
+   - Achieves 2:1 clock division using edge-triggered flip-flops
+
+2. **dual_channel.v** - DAC SPI Serializer
+   ```verilog
+   module da2_dual(
+     input clk,
+     input rst,
+     input SCLK,
+     output [1:0] SDATA,       // Dual serial data lines
+     output reg SYNC,          // Frame synchronization
+     input [11:0] value0,      // Channel 0 (12-bit)
+     input [11:0] value1,      // Channel 1 (12-bit)
+     input update              // Trigger new value
+   );
+   ```
+
+   **How It Works**:
+   - Accepts two 12-bit digital values (value0, value1)
+   - Formats data with control bits: `{2'b00, chmode[1:0], value[11:0]}`
+   - Serializes to SPI format on rising SCLK edges
+   - SYNC pulse frames the data transmission
+   - Loads next value on SYNC assertion
+
+   **Data Frame Structure**:
+   ```
+   Bit Position:  [15:14]  [13:12]      [11:0]
+   Contents:      {2'b00,  chmode,      value}
+   Total Bits:    16 bits per channel transmission
+   ```
+
+   **Serial Transmission Process**:
+   - SYNC goes high: Load new values from input registers
+   - On each SCLK rising edge: Shift data left, output MSB on SDATA
+   - Continue for 16 clock cycles
+   - Counter reaches 15, ready for next SYNC
+
+3. **dac_top.v** - Top-Level Integration
+   ```verilog
+   module DA2_Top (
+     input clk,              // 50 MHz system clock
+     input rst,
+     input update,           // Trigger DAC update
+     input [11:0] value0,    // Ch0 12-bit value
+     input [11:0] value1,    // Ch1 12-bit value
+     output [1:0] SDATA,     // Serialized data
+     output SYNC,            // Frame sync
+     output SCLK             // 25 MHz serial clock
+   );
+   ```
+   - Instantiates clock divider and dual-channel serializer
+   - Routes control signals and data paths
+   - Provides clean interface for FPGA integration
+
+**What Is Achieved**:
+- High-speed serial communication to precision DAC chips
+- Dual-channel synchronized analog output
+- Jitter-free clock derived from system clock
+- Proper timing and framing for DAC protocol compliance
+
+---
+
+### 3. Data Flow and Signal Processing
+
+**Pulse Generation → Waveform Shaping → DAC Conversion → Analog Output**
+
+```
+Software (SW/main.c)
+    ↓
+[Configure Pulse Widths via AXI]
+    ↓
+DME Squared Cosine IP
+    ├─ Read pulse_width values from AXI registers
+    ├─ Access squared_cosine_data.coe lookup table
+    ├─ Generate shaped pulse envelope
+    └─ Output pulse stream
+    ↓
+[Values fed to DAC]
+    ↓
+DAC2 Module
+    ├─ Dual Channel Serializer (dual_channel.v)
+    │  ├─ Accept 12-bit digital values
+    │  ├─ Frame with control bits (2'b00 + mode)
+    │  └─ Serialize at 25 MHz (SCLK)
+    ├─ Clock Divider (clk_div.v)
+    │  └─ 50 MHz → 25 MHz SCLK generation
+    └─ Output to DAC Chip
+       ├─ SYNC: Frame synchronization
+       ├─ SCLK: Serial clock (25 MHz)
+       └─ SDATA[1:0]: Dual data lines
+    ↓
+Analog Output
+    ├─ Channel 0: 12-bit analog waveform
+    └─ Channel 1: 12-bit analog waveform
+    ↓
+[RF Frontend/Transmission]
+```
+
+---
+
+### 4. Software Control (SW/main.c)
+
+**Purpose**: Configure hardware IP blocks and manage measurements
+
+**Key Operations**:
+
+1. **Pulse Width Configuration**:
+   ```c
+   Xil_Out32(DME_SQR_COS_BASEADDR + SLV_REG0_OFFSET, 0x1);    // ~5.35 ms
+   Xil_Out32(DME_SQR_COS_BASEADDR + SLV_REG1_OFFSET, 0x3e8);  // ~2.58 ms
+   Xil_Out32(DME_SQR_COS_BASEADDR + SLV_REG2_OFFSET, 0x9C4);  // ~0.96 ms
+   ```
+   - Sets pulse width for each of 3 channels
+   - Values are dimensionless counts converted to time via hardware clock
+
+2. **Enable Pulse Generation**:
+   ```c
+   Xil_Out32(DME_SQR_COS_BASEADDR + ENABLE, 0x1);  // Start generation
+   ```
+
+3. **Read Timing Measurements**:
+   ```c
+   delay = Xil_In32(TIMER_BASEADDR + DELAY);
+   pulse_width = Xil_In32(TIMER_BASEADDR + PULSE_WIDTH);
+   ```
+   - Reads measured delay and pulse width from timer block
+   - Uses these values for distance calculation
+   - Prints results for monitoring/debugging
+
+4. **Continuous Monitoring**:
+   - Polling loop continuously reads timing values
+   - Displays measurements via printf/UART
+   - Enables real-time observation of system operation
+
+---
+
+### 5. Lookup Table Data (COE Files)
+
+**sine_12bit_signed_4096samples.coe**:
+- 4096 samples of 12-bit signed sine wave
+- Used for waveform generation and signal reconstruction
+- Provides smooth analog output through DAC
+
+**signed_squared_cosine_data.coe**:
+- Squared-cosine envelope coefficients
+- Applied to pulse signals for spectral shaping
+- Reduces side lobes and electromagnetic interference
+- Formula: cos²(πt/T) envelope applied during pulse duration
+
+---
+
+### 6. What Is Achieved by the Complete System
+
+1. **Multi-Channel Pulse Generation**:
+   - 3 independent pulse trains with programmable widths
+   - Tightly synchronized via shared clock domain
+   - Configurable via software for mission flexibility
+
+2. **High-Precision Time Measurement**:
+   - Microsecond-level timing accuracy
+   - Distance calculation: d = (Δt × c) / 2
+   - Where c = speed of light, Δt = measured delay
+
+3. **Spectral Efficiency**:
+   - Squared-cosine envelope reduces out-of-band emissions
+   - Complies with DME spectrum regulations
+   - Minimizes interference with adjacent frequencies
+
+4. **Hardware-Software Integration**:
+   - Real-time hardware for time-critical pulse operations
+   - Software for flexible configuration and data processing
+   - Demonstrates FPGA-based avionics subsystem design
+
+5. **Dual-Channel Analog Output**:
+   - 12-bit precision analog waveforms
+   - Synchronized serial transmission via SPI-like protocol
+   - Ready for RF frontend and transmission
+
+---
+
+## Implementation Technology
+
+- **Language**: 98.3% VHDL, 1.4% Verilog, 0.3% Other
+- **Platform**: Xilinx FPGA (Vivado Design Suite)
+- **Integration**: AXI4-Lite Slave Interface
+- **Embedded System**: ARM Processor + FPGA Co-design
+
+---
+
+## Usage Example
+
+1. Configure pulse widths from software:
+   ```c
+   Xil_Out32(DME_SQR_COS_BASEADDR + SLV_REG0_OFFSET, 0x1);
+   ```
+
+2. Enable pulse generation:
+   ```c
+   Xil_Out32(DME_SQR_COS_BASEADDR + ENABLE, 0x1);
+   ```
+
+3. Monitor measurements:
+   ```c
+   delay = Xil_In32(TIMER_BASEADDR + DELAY);
+   printf("Measured Delay: %d\n", delay);
+   ```
+
+---
+
+## Topics
+
+- Aircraft Navigation Systems
+- Distance Measuring Equipment (DME)
+- FPGA Hardware Design
+- Hardware-Software Codesign
+- Avionics Subsystems
+
+---
+
+## License
+
+See repository for licensing information.
+
+---
+
+**Repository**: InvincibleJuggernaut/DiME  
+**Created**: 2025  
+**Description**: Distance Measuring Equipment for aircraft capable of pulse generation, detection and time measurement.
