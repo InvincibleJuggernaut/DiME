@@ -311,7 +311,6 @@ Analog Output
    - Real-time hardware for time-critical pulse operations.
    - Software for flexible configuration and data processing.
    - Demonstrates FPGA-based avionics subsystem design.
----
 
 ## Implementation Technology
 
@@ -339,7 +338,3 @@ Analog Output
    printf("Measured Delay: %d\n", delay);
    ```
 
-
-**Repository**: InvincibleJuggernaut/DiME  
-**Created**: 2025  
-**Description**: Distance Measuring Equipment for aircraft capable of pulse generation, detection and time measurement.
