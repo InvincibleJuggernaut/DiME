@@ -3,7 +3,7 @@
 
 ## Introduction
 
-**DiME (Di**stance** **M**easuring **E**quipment)** is a specialized FPGA-based system designed to implement pulse generation, detection, and time measurement capabilities essential for aircraft navigation and distance determination. This project demonstrates a hardware-software codesign approach combining Verilog hardware descriptions with embedded C software to create a complete DME system on a programmable logic platform.
+DiME (<b>Di</b>stance <b>M</b>easuring <b>E</b>quipment) is a specialized FPGA-based system designed to implement pulse generation, detection, and time measurement capabilities essential for aircraft navigation and distance determination. This project demonstrates a hardware-software codesign approach combining Verilog hardware descriptions with embedded C software to create a complete DME system on a programmable logic platform.
 
 ### Purpose
 
@@ -40,8 +40,8 @@ The system consists of three main components:
 ### 1. System Overview
 
 DiME is implemented as a heterogeneous system combining:
-- **Hardware Components** (Verilog): Real-time pulse generation, timing, and signal shaping.
-- **Software Components** (C): Control logic, configuration, and measurement processing.
+- **Hardware Components** (Verilog): Real-time pulse generation, timing and signal shaping.
+- **Software Components** (C): Control logic, configuration and measurement processing.
 - **Communication Protocol**: AXI Slave Interface for register-based control.
 
 ```
@@ -67,7 +67,7 @@ DiME is implemented as a heterogeneous system combining:
 **Purpose**: Generates shaped pulse signals for DME transmission
 
 **Key Features**:
-- Generates cosine squared wave modulated uisng sine wave.
+- Generates cosine squared wave modulated using sine wave.
 - Each channel has configurable pulse width via AXI registers.
 - Uses squared-cosine waveform shaping (pre-computed in `signed_squared_cosine_data.coe`).
 
